@@ -1,0 +1,27 @@
+{
+  "name": "galactic-atlas",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --no-warnings --test tests/*.test.ts",
+    "data:fetch-hyg": "node --experimental-strip-types --no-warnings pipeline/fetch-hyg.ts",
+    "data:fetch-gaia": "node --experimental-strip-types --no-warnings pipeline/fetch-gaia.ts",
+    "data:build": "node --experimental-strip-types --no-warnings pipeline/build-catalog.ts",
+    "data:sample": "node --experimental-strip-types --no-warnings pipeline/build-catalog.ts --sample",
+    "data": "npm run data:fetch-hyg && npm run data:fetch-gaia && npm run data:build"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/three": "^0.170.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.4.4"
+  }
+}

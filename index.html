@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Galactic Atlas</title>
+    <link rel="stylesheet" href="/src/ui/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="toolbar">
+        <span class="brand">GALACTIC ATLAS <span class="ver">0.1</span></span>
+        <div class="search">
+          <input id="search" type="search" placeholder="Buscar estrela — nome, HIP, HD, HR, Gl, Bayer…" autocomplete="off" spellcheck="false" />
+          <ul id="results" hidden></ul>
+        </div>
+        <div class="group">
+          <button data-go="sun" title="Centralizar no Sol (H)">Sol</button>
+          <button data-go="local" title="Vizinhança solar (~100 pc)">Vizinhança</button>
+          <button data-go="gc" title="Centro galáctico (Sgr A*)">Sgr A*</button>
+          <button data-go="galaxy" title="Visão da galáxia inteira">Galáxia</button>
+        </div>
+        <div class="group">
+          <label class="tog"><input type="checkbox" data-layer="catalog" checked /><i class="sw real"></i>Catálogo</label>
+          <label class="tog"><input type="checkbox" data-layer="procedural" checked /><i class="sw proc"></i>Procedural</label>
+          <label class="tog"><input type="checkbox" data-layer="grid" checked />Grade</label>
+          <label class="tog"><input type="checkbox" data-layer="labels" checked />Rótulos</label>
+        </div>
+        <div class="group">
+          <label class="exp" title="Exposição: magnitude limite relativa">Exp <input id="exposure" type="range" min="-4" max="4" step="0.25" value="0" /><output id="expval">+0.0</output></label>
+        </div>
+        <button id="filter-btn" title="Filtrar estrelas por tipo espectral, luminosidade, magnitude absoluta e cor (T)">Filtros<i class="dot"></i></button>
+        <button id="help-btn" class="icon" title="Controles">?</button>
+      </header>
+
+      <main id="viewport">
+        <canvas id="gl"></canvas>
+        <div id="labels"></div>
+        <div id="sel-ring" hidden></div>
+        <div id="filters" hidden></div>
+        <div id="loading" hidden><span class="spin"></span><span id="loading-text">carregando</span></div>
+        <div id="help" hidden>
+          <table>
+            <tr><td>arrastar</td><td>orbitar em torno do foco</td></tr>
+            <tr><td>botão direito / shift+arrastar</td><td>deslocar</td></tr>
+            <tr><td>roda</td><td>zoom (logarítmico)</td></tr>
+            <tr><td>W A S D · R F</td><td>voar (shift ×5)</td></tr>
+            <tr><td>clique</td><td>selecionar estrela</td></tr>
+            <tr><td>duplo clique</td><td>selecionar e centralizar</td></tr>
+            <tr><td>C · Z</td><td>centralizar / aproximar seleção</td></tr>
+            <tr><td>H · G</td><td>ir ao Sol / visão galáctica</td></tr>
+            <tr><td>T</td><td>painel de filtros</td></tr>
+            <tr><td>Esc</td><td>limpar seleção</td></tr>
+          </table>
+        </div>
+      </main>
+
+      <aside id="panel"></aside>
+
+      <footer id="status">
+        <span class="cell" id="st-pos" title="Posição da câmera, referencial galactocêntrico"></span>
+        <span class="cell" id="st-helio" title="Posição da câmera vista do Sol (l, b, distância)"></span>
+        <span class="cell" id="st-scale"><span id="scalebar"></span><span id="scaletext"></span></span>
+        <span class="spacer"></span>
+        <span class="cell" id="st-stars" title="Estrelas observacionais residentes / nós carregados"></span>
+        <span class="cell" id="st-mem" title="Memória de dados estelares (CPU + GPU) e heap JS"></span>
+        <span class="cell" id="st-perf"></span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
