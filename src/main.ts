@@ -11,8 +11,15 @@ import { packAbsMag, rgbFromTemp, tempFromBV } from './core/photometry.ts';
 import type { StarMeta } from './core/format.ts';
 import { FilterPanel } from './ui/filters.ts';
 import { defaultFilter, filterActive, type StarFilter } from './render/StarLayer.ts';
+import { IdbRepo, LazyRepo } from './world/repo.ts';
+import { WorldService } from './world/WorldService.ts';
+import { WorldLayer } from './render/WorldLayer.ts';
+import { WorldStarEditor } from './ui/worldEditor.ts';
+import { WorldManager, type ManagerTab } from './ui/worldManager.ts';
+import { Toast, WorldMenu, searchWorld } from './ui/worldUi.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
+const escHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 // ------------------------------------------------------------------ setup
 const canvas = $<HTMLCanvasElement>('#gl');
@@ -33,11 +40,22 @@ scene.add(galaxy.group, grids.group, stars.group);
 const labels = new LabelLayer($('#labels'));
 const ctl = new CameraController(camera, canvas);
 
+// authorial data (separate from the catalogue): service, map markers, panel editor, manager, menu
+const worldSvc = new WorldService(new LazyRepo(() => IdbRepo.open()), {
+  catalogBuild: () => store.index?.buildId ?? null,
+  resolve: (ids) => store.resolve(ids),
+  broadcast: true,
+});
+const worldLayer = new WorldLayer(worldSvc);
+scene.add(worldLayer.group);
+const toast = new Toast($('#toast'));
+const ACTIVE_WORLD_KEY = 'galactic-atlas:world';
+
 const STORAGE_KEY = 'galactic-atlas:v1';
 const DEFAULT_VIEW: ViewState = { target: [0, 0, 0], distance: 42000, yaw: Math.PI + 0.35, pitch: 0.95 };
 const settings = {
   exposure: 0,
-  layers: { catalog: true, procedural: true, grid: true, labels: true },
+  layers: { catalog: true, procedural: true, grid: true, labels: true, world: true },
   filter: defaultFilter() as StarFilter,
   filterOpen: false,
 };
@@ -74,7 +92,39 @@ function ensureSearch(): Promise<StarSearch> {
 
 interface Selection { index: number; meta: StarMeta; world: Vec3; title: string; props: [number, number, number, number] | null }
 let selected: Selection | null = null;
-const panel = $('#panel');
+const sci = $('#p-sci'); // scientific panel (catalogue data or overview)
+const editor = new WorldStarEditor($('#p-wed'), worldSvc, () => store.index?.buildId ?? '');
+const manager = new WorldManager($('#p-man'), worldSvc);
+const menu = new WorldMenu(worldSvc, $('#world-btn'), $('#world-drop'), $<HTMLInputElement>('#import-file'), toast);
+
+/** Name shown for the selection: the authorial name when the active world gives one. */
+function selectionTitle(): string {
+  if (!selected) return '';
+  return worldSvc.entityForStar(selected.index)?.name.trim() || selected.title;
+}
+
+function setManagerOpen(open: boolean, tab?: ManagerTab): void {
+  $('#p-man').hidden = !open;
+  sci.hidden = open;
+  $('#p-wed').hidden = open;
+  if (open) manager.show(tab);
+  else {
+    manager.hide();
+    renderPanel();
+  }
+}
+menu.onManage = () => setManagerOpen(true, 'world');
+editor.onManage = (tab) => setManagerOpen(true, tab as ManagerTab);
+editor.onTitleChange = () => renderPanel(false);
+manager.onClose = () => setManagerOpen(false);
+manager.onExport = () => void menu.exportActive();
+manager.onImport = () => menu.pickFile();
+manager.onOpenEntity = (e) => {
+  const i = worldSvc.indexOf(e);
+  if (i === null) return toast.show('Esta estrela não está no catálogo atual (anotação órfã).', 'error');
+  setManagerOpen(false);
+  void choose(i);
+};
 
 function worldOf(meta: StarMeta, isSun: boolean): Vec3 {
   return isSun ? ([...SUN_GC] as Vec3) : radecToWorld(meta.ra, meta.dec, meta.dist);
@@ -95,6 +145,7 @@ async function select(index: number | null, fly: 'none' | 'center' | 'approach' 
   selected = { index, meta, world, title: displayName(meta, name).title, props };
   const rgbm = stars.rgbmOf(index) ?? fallbackRgbm(meta);
   stars.setFocus(index, world, rgbm);
+  if (!$('#p-man').hidden) setManagerOpen(false);
   renderPanel();
   if (fly === 'center') ctl.flyTo(world, Math.min(ctl.distance, 50));
   if (fly === 'approach') ctl.flyTo(world, isSun ? 2e-4 : 1e-3);
@@ -106,28 +157,66 @@ function fallbackRgbm(meta: StarMeta): [number, number, number, number] {
   return [c[0] * 255, c[1] * 255, c[2] * 255, packAbsMag(M)];
 }
 
-function renderPanel(): void {
+/** Renders the scientific part; `editorToo` also (re)binds the world editor to the selection. */
+function renderPanel(editorToo = true): void {
   if (selected) {
-    panel.innerHTML = starPanel(selected.meta, search?.byIndex.get(selected.index), ctl.position, selected.props);
+    const ent = worldSvc.entityForStar(selected.index);
+    sci.innerHTML = starPanel(selected.meta, search?.byIndex.get(selected.index), ctl.position, selected.props, ent?.name.trim() || undefined);
+    if (editorToo) editor.show({ index: selected.index, meta: selected.meta, label: selected.title });
   } else {
-    panel.innerHTML = overviewPanel(store.index ?? null, galaxy.count);
+    sci.innerHTML = overviewPanel(store.index ?? null, galaxy.count) + worldSummary();
+    if (editorToo) editor.show(null);
   }
 }
-panel.addEventListener('click', (e) => {
+
+function worldSummary(): string {
+  const w = worldSvc.active;
+  if (!w) return '';
+  const n = worldSvc.entities.size;
+  const pl = (k: number, s: string, p: string) => `${k} ${k === 1 ? s : p}`;
+  return `<h3>Mundo ativo</h3><p><b class="auth-name">${escHtml(w.name)}</b><br>${pl(n, 'estrela anotada', 'estrelas anotadas')} · ${pl(w.tags.length, 'etiqueta', 'etiquetas')} · ${pl(w.fields.length, 'campo', 'campos')}</p>
+    <div class="actions"><button data-act="manage">Gerenciar mundo <span class="kbd">M</span></button></div>`;
+}
+
+worldSvc.on((e) => {
+  if (e.type === 'active') {
+    try { localStorage.setItem(ACTIVE_WORLD_KEY, worldSvc.active?.id ?? ''); } catch { /* ignore */ }
+  }
+  // titles and the overview summary depend on world data; editor and manager re-render themselves
+  if (!$('#p-man').hidden) return;
+  if (e.type === 'active' || e.type === 'resolved') renderPanel(true);
+  else if (e.type === 'meta' || e.type === 'entities') renderPanel(false);
+});
+window.addEventListener('pagehide', () => void worldSvc.flush());
+document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && void worldSvc.flush());
+
+sci.addEventListener('click', (e) => {
   const act = (e.target as HTMLElement).closest('[data-act]')?.getAttribute('data-act');
+  if (act === 'manage') return setManagerOpen(true, 'world');
   if (!act || !selected) return;
   if (act === 'center') ctl.flyTo(selected.world, Math.min(ctl.distance, 50));
   if (act === 'zoom') ctl.flyTo(selected.world, selected.title === 'Sol' ? 2e-4 : 1e-3);
   if (act === 'clear') void select(null);
 });
 
+/** Star under the cursor: world markers win over catalogue points. */
+function pickAt(x: number, y: number): number | null {
+  const cam = ctl.position, w = viewport.clientWidth, h = viewport.clientHeight;
+  const m = worldLayer.pick(x, y, (p) => stars.project([p[0] - cam[0], p[1] - cam[1], p[2] - cam[2]], camera, w, h));
+  if (m) {
+    const i = worldSvc.indexOf(m.entity);
+    if (i !== null) return i;
+    toast.show(`“${m.entity.name || m.entity.anchor?.label}” não está no catálogo atual (anotação órfã).`, 'error');
+    return null;
+  }
+  return settings.layers.catalog ? stars.pick(x, y, cam, camera, w, h, pixelRatio) : null;
+}
 ctl.onClick = (x, y) => {
-  if (!settings.layers.catalog) return;
-  const i = stars.pick(x, y, ctl.position, camera, viewport.clientWidth, viewport.clientHeight, pixelRatio);
+  const i = pickAt(x, y);
   if (i !== null) void select(i);
 };
 ctl.onDoubleClick = (x, y) => {
-  const i = settings.layers.catalog ? stars.pick(x, y, ctl.position, camera, viewport.clientWidth, viewport.clientHeight, pixelRatio) : null;
+  const i = pickAt(x, y);
   if (i !== null) void select(i, 'center');
 };
 
@@ -154,6 +243,7 @@ function applyLayers(): void {
   stars.setVisible(settings.layers.catalog);
   galaxy.setVisible(settings.layers.procedural);
   grids.setVisible(settings.layers.grid);
+  worldLayer.setVisible(settings.layers.world);
   $('#labels').style.display = settings.layers.labels ? '' : 'none';
 }
 applyLayers();
@@ -193,7 +283,7 @@ setFilterOpen(settings.filterOpen);
 filterBtn.addEventListener('click', () => setFilterOpen(!settings.filterOpen));
 
 window.addEventListener('keydown', (e) => {
-  if ((e.target as HTMLElement).closest('input')) return;
+  if ((e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable]')) return;
   const k = e.key.toLowerCase();
   if (k === 'escape') void select(null);
   if (k === 'c' && selected) ctl.flyTo(selected.world, Math.min(ctl.distance, 50));
@@ -201,12 +291,14 @@ window.addEventListener('keydown', (e) => {
   if (k === 'h') go.sun();
   if (k === 'g') go.galaxy();
   if (k === 't' && !e.ctrlKey && !e.metaKey) setFilterOpen(!settings.filterOpen);
+  if (k === 'm' && !e.ctrlKey && !e.metaKey) setManagerOpen($('#p-man').hidden, 'world');
 });
 
 // search
 const input = $<HTMLInputElement>('#search');
 const results = $<HTMLUListElement>('#results');
-let hits: ReturnType<StarSearch['query']> = [];
+interface Hit { index: number; label: string; key: string; cls?: string }
+let hits: Hit[] = [];
 let active = 0;
 function renderHits(): void {
   results.hidden = false;
@@ -215,13 +307,37 @@ function renderHits(): void {
     return;
   }
   results.innerHTML = hits
-    .map((h, i) => `<li data-i="${i}" class="${i === active ? 'active' : ''}"><span>${h.label}</span><span class="k">${h.key !== h.label ? h.key : h.row[2] || (h.row[4] ? 'HIP ' + h.row[4] : '')}</span></li>`)
+    .map((h, i) => `<li data-i="${i}" class="${i === active ? 'active' : ''} ${h.cls ?? ''}"><span>${escHtml(h.label)}</span><span class="k">${escHtml(h.key)}</span></li>`)
     .join('');
 }
+const GAIA_ID = /^\s*(?:gaia\s*(?:dr3)?\s*)?(\d{6,20})\s*$/i;
+let searchSeq = 0;
 input.addEventListener('input', async () => {
+  const q = input.value;
+  const seq = ++searchSeq;
   if (!search) results.innerHTML = '<li class="empty">carregando índice de nomes…</li>', (results.hidden = false);
   const s = await ensureSearch();
-  hits = s.query(input.value);
+  const out: Hit[] = [];
+  const seen = new Set<number>();
+  const push = (h: Hit) => {
+    if (seen.has(h.index)) return;
+    seen.add(h.index);
+    out.push(h);
+  };
+  for (const w of searchWorld(worldSvc, q)) {
+    const i = worldSvc.indexOf(w.entity);
+    if (i !== null) push({ index: i, label: w.label, key: w.key, cls: 'auth' });
+  }
+  const gaia = GAIA_ID.exec(q);
+  if (gaia) {
+    const i = await store.resolve([`gaia-dr3:${gaia[1]}`]);
+    if (i !== null) push({ index: i, label: `Gaia DR3 ${gaia[1]}`, key: 'source_id' });
+  }
+  if (seq !== searchSeq) return; // a newer query is in flight
+  for (const h of s.query(q)) {
+    push({ index: h.index, label: h.label, key: h.key !== h.label ? h.key : h.row[2] || (h.row[4] ? 'HIP ' + h.row[4] : '') });
+  }
+  hits = out.slice(0, 14);
   active = 0;
   renderHits();
 });
@@ -267,7 +383,7 @@ let frames = 0, fps = 0, frameMs = 0, lastStat = performance.now();
 function updateStatus(wantedCount: number): void {
   const p = ctl.position;
   if (selected) {
-    const dd = panel.querySelector('dd[data-k="camdist"]');
+    const dd = sci.querySelector('dd[data-k="camdist"]');
     if (dd) dd.textContent = formatDistance(Math.hypot(...(selected.world.map((v, i) => v - p[i]) as Vec3)));
   }
   el.pos.innerHTML = `xyz <b>${(p[0] / 1000).toFixed(3)} ${(p[1] / 1000).toFixed(3)} ${(p[2] / 1000).toFixed(3)}</b> kpc`;
@@ -310,9 +426,33 @@ function drawLabels(): void {
       if (onScreen(s)) labels.add(s[0], s[1], r >= 1000 ? `${r / 1000} kpc` : `${r} pc`, 'ring');
     }
   }
+  // authorial names (active world) take precedence over catalogue names
+  const taken = new Set<string>();
+  const cell = (s: [number, number]) => [Math.floor(s[0] / 90), Math.floor(s[1] / 18)] as const;
+  if (selected) {
+    // keep the selection's own label clear of other names
+    const s = proj(selected.world);
+    if (onScreen(s)) {
+      const [gx, gy] = cell(s);
+      for (const dx of [0, 1]) taken.add(`${gx + dx},${gy}`);
+    }
+  }
+  if (settings.layers.world) {
+    let n = 0;
+    for (const m of worldLayer.markers) {
+      if (!m.entity.name.trim() || (selected && worldSvc.indexOf(m.entity) === selected.index)) continue;
+      const s = proj(m.world);
+      if (!onScreen(s)) continue;
+      const [gx, gy] = cell(s);
+      if (taken.has(`${gx},${gy}`)) continue;
+      taken.add(`${gx},${gy}`);
+      labels.add(s[0] + 4, s[1], m.entity.name, 'world');
+      if (++n >= 40) break;
+    }
+  }
   // named stars that are currently bright enough to be seen
   if (search && settings.layers.catalog && ctl.distance < 3000) {
-    const cands: Array<{ s: [number, number]; dm: number; t: string }> = [];
+    const cands: Array<{ s: [number, number]; dm: number; t: string; i: number }> = [];
     for (const row of namedRows ?? (namedRows = search.named())) {
       if (row[1] === 'Sol' || row[0] === selected?.index) continue;
       const loc = store.locate(row[0]);
@@ -325,14 +465,14 @@ function drawLabels(): void {
       const dm = apparentDelta(stars.magLimit, l.rgbm[loc.local * 4 + 3], d);
       if (dm < 4.5) continue;
       const s = proj(wp);
-      if (onScreen(s)) cands.push({ s, dm, t: row[1] });
+      if (onScreen(s)) cands.push({ s, dm, t: row[1], i: row[0] });
     }
     cands.sort((a, b) => b.dm - a.dm);
     // greedy de-cluttering on a coarse screen grid
-    const taken = new Set<string>();
     let n = 0;
     for (const c of cands) {
-      const gx = Math.floor(c.s[0] / 90), gy = Math.floor(c.s[1] / 18);
+      if (settings.layers.world && worldSvc.entityForStar(c.i)?.name.trim()) continue; // already labelled
+      const [gx, gy] = cell(c.s);
       const key = `${gx},${gy}`;
       if (taken.has(key) || taken.has(`${gx - 1},${gy}`)) continue;
       taken.add(key);
@@ -343,7 +483,7 @@ function drawLabels(): void {
   if (selected) {
     const s = proj(selected.world);
     if (s && onScreen(s)) {
-      labels.add(s[0] + 6, s[1], selected.title, 'sel');
+      labels.add(s[0] + 6, s[1], selectionTitle(), 'sel');
       el.ring.hidden = false;
       el.ring.style.transform = `translate(${s[0].toFixed(1)}px, ${s[1].toFixed(1)}px)`;
     } else el.ring.hidden = true;
@@ -387,6 +527,7 @@ function tick(dt: number, render = true): void {
   stars.update(cam, magLimit, pixelRatio);
   galaxy.update(cam, pixelRatio, ctl.distance);
   grids.update(cam, ctl.distance);
+  worldLayer.update(cam, pixelRatio);
   if (!render) return;
   renderer.render(scene, camera);
   if (settings.layers.labels) drawLabels();
@@ -416,7 +557,15 @@ async function start(): Promise<void> {
   try {
     await store.init();
   } catch (e) {
-    panel.innerHTML = `<h2>Catálogo indisponível</h2><p class="note warn">${String((e as Error).message)}</p>`;
+    sci.innerHTML = `<h2>Catálogo indisponível</h2><p class="note warn">${String((e as Error).message)}</p>`;
+  }
+  try {
+    let preferred: string | null = null;
+    try { preferred = localStorage.getItem(ACTIVE_WORLD_KEY); } catch { /* ignore */ }
+    await worldSvc.init(preferred);
+    if (!worldSvc.repo.persistent) toast.show('Armazenamento local indisponível: o mundo não será salvo ao fechar. Exporte para guardar.', 'error', 8000);
+  } catch (e) {
+    toast.show(`Falha ao abrir o mundo: ${(e as Error).message}`, 'error', 8000);
   }
   renderPanel();
   galaxy.ready.then(() => !selected && renderPanel());
@@ -428,7 +577,7 @@ void start();
 
 // Debug handle for the browser console (no app logic depends on it).
 (window as unknown as { atlas: unknown }).atlas = {
-  store, stars, galaxy, ctl, renderer, select, go,
+  store, stars, galaxy, ctl, renderer, select, go, worldSvc, worldLayer,
   /** Advances the simulation synchronously (for automated checks when rAF is throttled). */
   step(seconds: number) {
     const n = Math.max(1, Math.round(seconds * 60));

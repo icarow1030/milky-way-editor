@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { META_RECORD_BYTES, RENDER_BYTES_PER_STAR, readMetaRecord, persistentId, Source, type CatalogIndex, type NameRow } from '../src/core/format.ts';
+import { META_RECORD_BYTES, RENDER_BYTES_PER_STAR, readMetaRecord, persistentId, Source, idShardOf, starIds, type CatalogIndex, type NameRow } from '../src/core/format.ts';
 import { packAbsMag, unpackAbsMag, tempFromBV, tempFromBpRp } from '../src/core/photometry.ts';
 import { radecToWorld, SUN_GC } from '../src/core/coords.ts';
 import { generateGalaxy } from '../src/render/galaxyModel.ts';
@@ -86,4 +86,25 @@ test('known stars resolve by name with correct distances', { skip: !hasCatalog &
     const m = metaOf(r![0]);
     assert.ok(Math.abs(m.dist - d) <= tol, `${name} distance ${m.dist}`);
   }
+});
+
+test('identifier map resolves every sampled star back to its index', { skip: !hasCatalog && 'no catalog built' }, () => {
+  const index: CatalogIndex = JSON.parse(readFileSync(`${DIR}/index.json`, 'utf8'));
+  assert.match(index.buildId, /^[0-9a-f]{8}-\d+$/);
+  const shards = new Map<string, Record<string, number>>();
+  const shard = (k: string) => shards.get(k) ?? shards.set(k, JSON.parse(readFileSync(`${DIR}/ids/${k}.json`, 'utf8'))).get(k)!;
+  let checked = 0, total = 0;
+  for (let s = 0; s < index.idShards; s++) total += Object.keys(shard(s.toString(16).padStart(2, '0'))).length;
+  assert.ok(total >= index.total, `at least one id per star (${total} ids, ${index.total} stars)`);
+  for (const n of index.nodes) {
+    const b = readFileSync(`${DIR}/nodes/${n.id}.meta.bin`);
+    const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    for (let k = 0; k < n.n; k += Math.max(1, Math.floor(n.n / 50))) {
+      const m = readMetaRecord(view, k, n.off + k);
+      const primary = starIds(m)[0];
+      assert.equal(shard(idShardOf(primary, index.idShards))[primary], n.off + k, primary);
+      checked++;
+    }
+  }
+  assert.ok(checked > 1000);
 });

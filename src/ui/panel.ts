@@ -22,7 +22,7 @@ export function displayName(meta: StarMeta, name: NameRow | undefined): { title:
 }
 
 export function starPanel(meta: StarMeta, name: NameRow | undefined, cam: Vec3,
-  props: [number, number, number, number] | null): string {
+  props: [number, number, number, number] | null, worldName?: string): string {
   const isSun = name?.[1] === 'Sol';
   const { title, subtitle } = displayName(meta, name);
   const world = isSun ? null : radecToWorld(meta.ra, meta.dec, meta.dist);
@@ -40,8 +40,14 @@ export function starPanel(meta: StarMeta, name: NameRow | undefined, cam: Vec3,
   const colorName = meta.source === Source.GaiaDR3 ? 'BP−RP' : 'B−V';
   const camDist = world ? Math.hypot(world[0] - cam[0], world[1] - cam[1], world[2] - cam[2]) : NaN;
 
-  let h = `<h2>${esc(title)}</h2>`;
-  if (subtitle) h += `<div class="sub">${esc(subtitle)}</div>`;
+  let h: string;
+  if (worldName) {
+    // authorial name first; the catalogue designation stays visible right below
+    h = `<h2 class="auth-name">${esc(worldName)}</h2><div class="sub">${esc([title, subtitle].filter(Boolean).join(' · '))}</div>`;
+  } else {
+    h = `<h2>${esc(title)}</h2>`;
+    if (subtitle) h += `<div class="sub">${esc(subtitle)}</div>`;
+  }
   h += `<div class="badge real"><i class="sw real"></i>Observacional · ${meta.source === Source.GaiaDR3 ? 'Gaia DR3' : 'Hipparcos/HYG'}</div>`;
 
   h += '<h3>Identificação</h3><dl>';
@@ -99,6 +105,7 @@ export function overviewPanel(index: CatalogIndex | null, galaxyCount: number): 
   h += '<h3>Camadas</h3><div class="legend">';
   h += `<i class="sw real"></i><div><b>Estrelas observacionais</b><br>${index ? index.total.toLocaleString('pt-BR') : '—'} estrelas com posição derivada de astrometria real (Gaia DR3, Hipparcos). Clicáveis.</div>`;
   h += `<i class="sw proc"></i><div><b>Galáxia procedural</b><br>${galaxyCount.toLocaleString('pt-BR')} pontos agregados, gerados deterministicamente — apenas visual, não são estrelas reais e não são selecionáveis.</div>`;
+  h += `<i class="sw auth"></i><div><b>Seu mundo</b><br>Dados autorais (nomes, descrições, etiquetas, campos) sobre estrelas reais, guardados à parte do catálogo. Marcados com anéis.</div>`;
   h += '</div>';
   if (index) {
     h += '<h3>Catálogo</h3><dl>';

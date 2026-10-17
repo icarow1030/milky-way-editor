@@ -10,6 +10,10 @@
     <div id="app">
       <header id="toolbar">
         <span class="brand">GALACTIC ATLAS <span class="ver">0.1</span></span>
+        <div class="world-menu">
+          <button id="world-btn" title="Mundo ativo (seus dados autorais)"><i class="sw auth"></i><span id="world-name">…</span><span class="caret">▾</span></button>
+          <div id="world-drop" hidden></div>
+        </div>
         <div class="search">
           <input id="search" type="search" placeholder="Buscar estrela — nome, HIP, HD, HR, Gl, Bayer…" autocomplete="off" spellcheck="false" />
           <ul id="results" hidden></ul>
@@ -24,6 +28,7 @@
           <label class="tog"><input type="checkbox" data-layer="catalog" checked /><i class="sw real"></i>Catálogo</label>
           <label class="tog"><input type="checkbox" data-layer="procedural" checked /><i class="sw proc"></i>Procedural</label>
           <label class="tog"><input type="checkbox" data-layer="grid" checked />Grade</label>
+          <label class="tog"><input type="checkbox" data-layer="world" checked /><i class="sw auth"></i>Mundo</label>
           <label class="tog"><input type="checkbox" data-layer="labels" checked />Rótulos</label>
         </div>
         <div class="group">
@@ -38,6 +43,7 @@
         <div id="labels"></div>
         <div id="sel-ring" hidden></div>
         <div id="filters" hidden></div>
+        <div id="toast" hidden></div>
         <div id="loading" hidden><span class="spin"></span><span id="loading-text">carregando</span></div>
         <div id="help" hidden>
           <table>
@@ -50,12 +56,18 @@
             <tr><td>C · Z</td><td>centralizar / aproximar seleção</td></tr>
             <tr><td>H · G</td><td>ir ao Sol / visão galáctica</td></tr>
             <tr><td>T</td><td>painel de filtros</td></tr>
+            <tr><td>M</td><td>gerenciar mundo</td></tr>
             <tr><td>Esc</td><td>limpar seleção</td></tr>
           </table>
         </div>
       </main>
 
-      <aside id="panel"></aside>
+      <aside id="panel">
+        <div id="p-sci"></div>
+        <div id="p-wed"></div>
+        <div id="p-man" hidden></div>
+      </aside>
+      <input type="file" id="import-file" accept=".json,application/json" hidden />
 
       <footer id="status">
         <span class="cell" id="st-pos" title="Posição da câmera, referencial galactocêntrico"></span>

@@ -19,7 +19,7 @@
  *     reference persistentId and lives outside the scientific catalog.
  */
 
-export const CATALOG_FORMAT_VERSION = 2;
+export const CATALOG_FORMAT_VERSION = 3;
 export const RENDER_BYTES_PER_STAR = 20;
 
 export const Source = {
@@ -128,7 +128,38 @@ export interface CatalogIndex {
   counts: Record<string, number>;
   sources: Array<{ code: number; name: string; citation: string; license: string; selection: string }>;
   nodeCapacity: number;
+  /** Changes whenever star indices change (hash of every primary persistentId in index order). */
+  buildId: string;
+  /** Number of ids/<shard>.json files mapping identifiers to indices. */
+  idShards: number;
   nodes: CatalogNode[];
+}
+
+/**
+ * Identifier -> index map, for re-linking world data after a rebuild and for searching by
+ * Gaia source_id. Every identifier of a star is indexed (Gaia, HIP, HYG), sharded by hash:
+ *   ids/<00..ff>.json   { "<identifier>": <index>, ... }
+ */
+export const ID_SHARDS = 256;
+
+/** 32-bit FNV-1a. */
+export function fnv1a(s: string, h = 0x811c9dc5): number {
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+export const idShardOf = (id: string, shards = ID_SHARDS) => (fnv1a(id) % shards).toString(16).padStart(2, '0');
+
+/** Every identifier a star is known by, primary (persistentId) first. */
+export function starIds(m: Pick<StarMeta, 'gaiaSourceId' | 'hip' | 'hygId'>): string[] {
+  const ids: string[] = [];
+  if (m.gaiaSourceId !== null) ids.push(`gaia-dr3:${m.gaiaSourceId}`);
+  if (m.hip) ids.push(`hip:${m.hip}`);
+  if (m.hygId !== null) ids.push(`hyg:${m.hygId}`);
+  return ids;
 }
 
 /** names.json row: [index, proper, bayerFlamsteed, constellation, hip, hd, hr, gliese, spectralType] */

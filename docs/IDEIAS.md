@@ -329,7 +329,7 @@ Contagens no Gaia DR3 (consultadas no Gaia Archive em 2026-10-17):
 
 ## 14. Ordem sugerida
 
-1. Documento do mundo + anotações sobre estrelas reais, editáveis no painel.
+1. ~~Documento do mundo + anotações sobre estrelas reais, editáveis no painel.~~ **Feito** (fase 1, ver [MUNDO.md](MUNDO.md)): vários mundos, etiquetas, campos customizados, marcadores, busca, exportar/importar, religação após reconstruir o catálogo.
 2. Estrelas autorais + camada de renderização e picking.
 3. Estrelas candidatas sob demanda + cursor 3D.
 4. Régua.

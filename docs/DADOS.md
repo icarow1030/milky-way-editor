@@ -68,19 +68,22 @@ Gliese e tipo espectral, e as estrelas brilhantes que o Gaia satura ou não mede
 - `nodes/<id>.bin` — **20 bytes/estrela**: posição float32×3 relativa ao centro do nó +
   RGB (uint8×3) + magnitude absoluta empacotada (uint8, passos de 0,125 mag) + props de filtro
   (classe espectral, classe de luminosidade, BP−RP em passos de 0,025, flags). É o único dado
-  residente por estrela, enviado à GPU sem cópia. Formato v2 (`index.json` → `version`).
+  residente por estrela, enviado à GPU sem cópia. Formato v3 (`index.json` → `version`).
 - `nodes/<id>.meta.bin` — 64 bytes/estrela (fonte, flags, HIP, source_id Gaia, α, δ em float64,
   distância e intervalo, paralaxe e erro, magnitude, cor). Baixado **só ao selecionar**;
   cache de 8 nós.
 - `names.json` — designações (~110 mil linhas), baixado uma vez para busca e rótulos.
 - `index.json` — nós (centro float64, meia-aresta, contagem, offset, faixa de magnitude),
-  procedência e contagens.
+  procedência, contagens e `buildId` (hash da ordem das estrelas: muda só quando os índices mudam).
+- `ids/<00..ff>.json` — todos os identificadores (`gaia-dr3:…`, `hip:…`, `hyg:…`; ~1,04 milhão)
+  → índice, divididos por hash (FNV-1a) em 256 arquivos de ~130 KB. Usado para religar dados do
+  mundo após uma reconstrução e para buscar por `source_id` do Gaia; baixado sob demanda.
 
 ### Identidade estável
 - `index` (uint32) = offset do nó + posição: compacto, mas **muda se o catálogo for reconstruído**.
-- `persistentId` (string): `gaia-dr3:<source_id>`, `hip:<n>` ou `hyg:<id>`. Dados autorais
-  futuros (sistemas, civilizações, rotas…) devem referenciar o `persistentId` e viver fora de
-  `public/data/catalog`, que é tratado como somente leitura.
+- `persistentId` (string): `gaia-dr3:<source_id>`, `hip:<n>` ou `hyg:<id>`. Os dados do mundo
+  guardam **todos** os identificadores da estrela e são religados pelo mapa `ids/` (ver
+  [MUNDO.md](MUNDO.md#ligação-com-o-catálogo)); `public/data/catalog` é somente leitura.
 
 ## Classes espectrais e filtros
 

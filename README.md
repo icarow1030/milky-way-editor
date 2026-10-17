@@ -36,8 +36,18 @@ Outros comandos: `npm test` (transformações, formato, octree), `npm run build`
 | C · Z · Esc | centralizar / aproximar / limpar seleção |
 | H · G | Sol / galáxia inteira |
 | T | painel de filtros (classe espectral, luminosidade, M_G/M_V, BP−RP; Alt+clique isola um chip) |
+| M | gerenciar o mundo ativo (etiquetas, campos, estrelas anotadas, mundos, exportar/importar) |
 
 A vista, as camadas e a exposição são salvas em `localStorage` e restauradas ao reabrir.
+
+## Seu mundo
+
+Selecione uma estrela e use **Anotar estrela** no painel: nome no seu universo, descrição,
+etiquetas e campos que você define (texto, número com unidade, escolha única ou múltipla,
+sim/não). Estrelas anotadas ganham um anel e o nome do universo no mapa e aparecem primeiro
+na busca. Dá para ter vários mundos e exportar ou importar cada um como `.atlas-world.json`.
+Tudo fica no navegador (IndexedDB), separado do catálogo científico. Detalhes em
+[docs/MUNDO.md](docs/MUNDO.md).
 
 ## Arquitetura
 
@@ -57,7 +67,9 @@ src/render/
   galaxyModel.ts            modelo procedural determinístico (TS + GLSL)
   Overlays.ts               grades e rótulos HTML
 src/nav/CameraController.ts órbita/voo com estado em float64, origem flutuante
-src/ui/                     painel, busca, CSS
+src/world/                  dados autorais: modelo + validação/migração (puro), IndexedDB, serviço
+src/render/WorldLayer.ts    marcadores das estrelas anotadas (posição exata, relativa à câmera)
+src/ui/                     painel, busca, filtros, editor/gerenciador do mundo, CSS
 src/main.ts                 composição e loop
 ```
 

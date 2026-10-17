@@ -1,5 +1,5 @@
 import {
-  CATALOG_FORMAT_VERSION, META_RECORD_BYTES, RENDER_BYTES_PER_STAR, readMetaRecord,
+  CATALOG_FORMAT_VERSION, META_RECORD_BYTES, RENDER_BYTES_PER_STAR, idShardOf, readMetaRecord,
   type CatalogIndex, type CatalogNode, type NameRow, type StarMeta,
 } from '../core/format.ts';
 
@@ -31,6 +31,7 @@ export class CatalogStore {
   private frame = 0;
   private metaCache = new Map<number, DataView>(); // small, LRU by insertion order
   private names: Promise<NameRow[]> | null = null;
+  private idShards = new Map<string, Promise<Record<string, number>>>(); // small LRU
   residentBytes = 0;
 
   onLoad: (n: LoadedNode) => void = () => {};
@@ -168,6 +169,22 @@ export class CatalogStore {
   loadNames(): Promise<NameRow[]> {
     if (!this.names) this.names = fetch(`${BASE}/names.json`).then((r) => (r.ok ? r.json() : []));
     return this.names;
+  }
+
+  /** Current index of a star known by any of its identifiers ("gaia-dr3:…", "hip:…", "hyg:…"). */
+  async resolve(ids: string[]): Promise<number | null> {
+    for (const id of ids) {
+      const k = idShardOf(id, this.index.idShards);
+      let shard = this.idShards.get(k);
+      if (!shard) {
+        shard = fetch(`${BASE}/ids/${k}.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+        this.idShards.set(k, shard);
+        if (this.idShards.size > 16) this.idShards.delete(this.idShards.keys().next().value!);
+      }
+      const i = (await shard)[id];
+      if (i !== undefined) return i;
+    }
+    return null;
   }
 
   /** Filter props (class, luminosity, BP−RP, flags) of one star, fetching its node payload if needed. */

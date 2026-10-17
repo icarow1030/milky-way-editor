@@ -20,7 +20,7 @@ import { radecToWorld, SUN_GC, type Vec3 } from '../src/core/coords.ts';
 import { absoluteMagnitude, packAbsMag, rgbFromTemp, tempFromBV, tempFromBpRp } from '../src/core/photometry.ts';
 import { bpRpFromTemp, encodeProps } from '../src/core/spectral.ts';
 import {
-  CATALOG_FORMAT_VERSION, META_RECORD_BYTES, MetaFlag, MetaOffset, Source,
+  CATALOG_FORMAT_VERSION, ID_SHARDS, META_RECORD_BYTES, fnv1a, idShardOf, starIds, MetaFlag, MetaOffset, Source,
   type CatalogIndex, type CatalogNode, type NameRow,
 } from '../src/core/format.ts';
 
@@ -262,6 +262,8 @@ async function main() {
 
   const names: NameRow[] = [];
   let off = 0;
+  const idMap = new Map<string, number>();
+  let buildHash = 0x811c9dc5;
   let renderBytes = 0, metaBytes = 0;
   for (const node of nodes) {
     node.off = off;
@@ -316,7 +318,23 @@ async function main() {
     writeFileSync(`${OUT}/nodes/${node.id}.meta.bin`, new Uint8Array(meta.buffer));
     renderBytes += render.byteLength;
     metaBytes += meta.byteLength;
+    for (let k = 0; k < n; k++) {
+      const s = stars[node.members[k]];
+      const ids = starIds({ gaiaSourceId: s.gaiaId ? s.gaiaId : null, hip: s.hip, hygId: s.hygId >= 0 ? s.hygId : null });
+      buildHash = fnv1a(ids[0] ?? '', buildHash);
+      for (const id of ids) if (!idMap.has(id)) idMap.set(id, off + k); // first (brightest) wins on rare HIP collisions
+    }
     off += n;
+  }
+  mkdirSync(`${OUT}/ids`, { recursive: true });
+  const shards = new Map<string, Record<string, number>>();
+  for (const [id, i] of idMap) {
+    const k = idShardOf(id);
+    (shards.get(k) ?? shards.set(k, {}).get(k)!)[id] = i;
+  }
+  for (let s = 0; s < ID_SHARDS; s++) {
+    const k = s.toString(16).padStart(2, '0');
+    writeFileSync(`${OUT}/ids/${k}.json`, JSON.stringify(shards.get(k) ?? {}));
   }
 
   const counts: Record<string, number> = { gaiaDR3: 0, hipparcos: 0, droppedOutsideRoot: dropped };
@@ -345,12 +363,15 @@ async function main() {
       },
     ],
     nodeCapacity: NODE_CAPACITY,
+    buildId: `${buildHash.toString(16).padStart(8, '0')}-${off}`,
+    idShards: ID_SHARDS,
     nodes: nodes.map(({ members: _m, ...n }) => ({ ...n, c: n.c.map((v) => +v.toFixed(6)) as Vec3, mMin: +n.mMin.toFixed(3), mMax: +n.mMax.toFixed(3) })),
   };
   writeFileSync(`${OUT}/index.json`, JSON.stringify(index));
   writeFileSync(`${OUT}/names.json`, JSON.stringify(names));
 
   console.log(`Stars written: ${off} in ${nodes.length} nodes (max depth ${Math.max(...nodes.map((n) => n.depth))}); dropped ${dropped}`);
+  console.log(`Identifier map: ${idMap.size} ids in ${ID_SHARDS} shards; buildId ${index.buildId}`);
   console.log(`Render payload ${(renderBytes / 1e6).toFixed(1)} MB, metadata ${(metaBytes / 1e6).toFixed(1)} MB, names ${names.length}`);
   console.log(`Done in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 }
